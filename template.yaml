@@ -53,7 +53,7 @@ Resources:
                       
                   ec2.Vpc(vpc.id).delete()
                   
-                  print(region.ljust(20), '|', vpc.id.ljust(20), '|', ' deleted')
+                  print(region.ljust(20), '|', vpc.id.ljust(24), '|', ' deleted')
       Environment:
         Variables:
           IgnoreRegions: !Ref IgnoreRegions
@@ -61,7 +61,7 @@ Resources:
       Handler: index.lambda_handler
       Runtime: python3.9
       Role: !GetAtt AwsDefaultVpcRemoverFunctionRole.Arn
-      Timeout: 120
+      Timeout: 180
 
   # IAM Role
   AwsDefaultVpcRemoverFunctionRole:
