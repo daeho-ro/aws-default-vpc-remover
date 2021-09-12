@@ -1,0 +1,99 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  AWS-DEFAULT-VPC-REMOVER
+
+Parameters:
+  IgnoreRegions:
+    Type: String
+    Description: Comma separatted region code can be applied to ignore the removing vpc, (i.e. us-east1,ap-northeast-2)
+    Default: None
+
+Resources:
+  # Lambda Function
+  AwsDefaultVpcRemoverFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Code:
+        ZipFile: |
+          import boto3
+          import os
+
+          def lambda_handler(event, context):
+
+              ignore_regions = os.environ['IgnoreRegions'].replace(' ','').split(',')
+              print('ignore_regions : ', ignore_regions)
+              remove_regions = list(filter(lambda x: x not in ignore_regions, map(lambda x: x.get('RegionName'), boto3.resource('ec2').meta.client.describe_regions().get('Regions'))))
+              print('remove_regions : ', remove_regions)
+
+              for region in remove_regions:
+                  remove_vpc(region)
+                  
+              return 200
+
+
+          def remove_vpc(region):
+
+              ec2 = boto3.session.Session(region_name=region).resource('ec2')
+              
+              vpcs = ec2.vpcs.filter(Filters=[{'Name':'isDefault','Values':['true']}])
+              
+              for vpc in vpcs:
+                  
+                  igws = ec2.internet_gateways.filter(Filters=[{'Name':'attachment.vpc-id','Values':[vpc.id]}])
+                  
+                  for igw in igws:
+                      ec2.InternetGateway(igw.id).detach_from_vpc(VpcId=vpc.id)
+                      ec2.InternetGateway(igw.id).delete()
+                      
+                  subnets = ec2.subnets.filter(Filters=[{'Name':'vpc-id','Values':[vpc.id]}])
+                  
+                  for subnet in subnets:
+                      ec2.Subnet(subnet.id).delete()
+                      
+                  ec2.Vpc(vpc.id).delete()
+                  
+                  print(region.ljust(20), '|', vpc.id.ljust(20), '|', ' deleted')
+      Environment:
+        Variables:
+          IgnoreRegions: !Ref IgnoreRegions
+      FunctionName: lambda-aws-default-vpc-remover
+      Handler: index.lambda_handler
+      Runtime: python3.9
+      Role: !GetAtt AwsDefaultVpcRemoverFunctionRole.Arn
+      Timeout: 120
+
+  # IAM Role
+  AwsDefaultVpcRemoverFunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Principal: 
+            Service: 
+            - lambda.amazonaws.com
+          Action: 
+          - sts:AssumeRole
+      RoleName: role-aws-default-vpc-remover
+
+  AwsDefaultVpcRemoverFunctionPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Action: 
+          - ec2:DescribeRegions
+          - ec2:DescribeVpcs
+          - ec2:DeleteVpc
+          - ec2:DescribeInternetGateways
+          - ec2:DetachInternetGateway
+          - ec2:DeleteInternetGateway
+          - ec2:DescribeSubnets
+          - ec2:DeleteSubnet
+          Resource: '*'
+      Roles:
+      - !Ref AwsDefaultVpcRemoverFunctionRole
